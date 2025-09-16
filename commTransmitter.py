@@ -4,191 +4,161 @@ import threading
 import struct 
 
 # =============================================================================
-#  CLASS TO MANAGE SERIAL COMMUNICATION
+#  CLASSE PARA GERENCIAR A COMUNICAÇÃO SERIAL
 # =============================================================================
 
-class SerialCommunication:
-    """
-    Manages the serial port connection, including reading and writing data.
-    It uses a separate thread to continuously read incoming data without blocking
-    the main program.
-    """
-    def __init__(self, port, baudrate=115200, timeout=1):
-        """
-        Initializes the serial communication and the reading thread.
-        Args:
-            port (str): The serial port to connect to (e.g., "COM11" or "/dev/ttyUSB0").
-            baudrate (int): The communication speed in bits per second.
-            timeout (int): Read timeout value in seconds.
-        """
+class ComunicacaoSerial:
+    def __init__(self, porta, baudrate=115200, timeout=1):
+        """Inicializa a comunicação serial e a thread de leitura."""
         self.ser = None
         try:
-            self.ser = serial.Serial(port, baudrate, timeout=timeout)
-            print(f"Serial port '{port}' opened successfully at {baudrate} bps.")
+            self.ser = serial.Serial(porta, baudrate, timeout=timeout)
+            print(f"Porta serial '{porta}' aberta com sucesso a {baudrate} bps.")
         except serial.SerialException as e:
-            print(f"ERROR: Could not open serial port '{port}'.")
-            print(f"Error detail: {e}")
-            print("Please check if the port is correct and not in use by another program.")
+            print(f"ERRO: Não foi possível abrir a porta serial '{porta}'.")
+            print(f"Detalhe do erro: {e}")
+            print("Verifique se a porta está correta e não está sendo usada por outro programa.")
             raise
 
-        self.received_data = {}
-        self.running = True
+        self.dados_recebidos = {}
+        self.rodando = True
         
-        # Start a background thread to read data from the serial port
-        self.read_thread = threading.Thread(target=self._read_serial_data)
-        self.read_thread.daemon = True # Allows the main program to exit even if this thread is running
-        self.read_thread.start()
+        self.thread_leitura = threading.Thread(target=self._ler_dados_serial)
+        self.thread_leitura.daemon = True
+        self.thread_leitura.start()
 
-    def _read_serial_data(self):
+    def _ler_dados_serial(self):
         """
-        This method runs in the background thread to read and process data.
-        It expects data in a specific comma-separated format:
-        "id,v1,v2,v3,v4,latency,id,v1,v2,v3,v4,latency,..."
+        Método executado em segundo plano pela thread para ler e processar dados.
         """
-        while self.running:
+        while self.rodando:
             if self.ser and self.ser.in_waiting > 0:
                 try:
-                    # Read one line (until a newline character) from the serial port
-                    line_bytes = self.ser.readline()
-                    # Decode the bytes into a UTF-8 string and remove whitespace/null chars
-                    line_str = line_bytes.decode('utf-8').strip()
-                    line_str = line_str.rstrip('\x00')
+                    linha_bytes = self.ser.readline()
+                    linha_str = linha_bytes.decode('utf-8').strip()
+                    linha_str = linha_str.rstrip('\x00')
 
-                    # Skip empty lines
-                    if not line_str:
+                    if not linha_str:
                         continue
 
-                    print(f"Received: '{line_str}'")
+                    print(f"Recebido: '{linha_str}'")
                     
-                    parts = line_str.split(',')
+                    partes = linha_str.split(',')
 
-                    # Check if the data is valid (must be in blocks of 6 values)
-                    if len(parts) >= 2 and len(parts) % 6 == 0:
-                        # Process each block of data
-                        for i in range(0, len(parts), 6):
-                            block = parts[i:i+6]
+                    if len(partes) >= 2 and len(partes) % 6 == 0:
+                        for i in range(0, len(partes), 6):
+                            bloco = partes[i:i+6]
                             try:
-                                robot_id = int(block[0])
-                                velocities = [float(v) for v in block[1:5]]
-                                latency = float(block[5])
+                                id_robo = int(bloco[0])
+                                velocidades = [float(v) for v in bloco[1:5]]
+                                latencia = float(bloco[5])
 
-                                # Store the parsed data in a dictionary
-                                self.received_data[robot_id] = {
-                                    'velocities': velocities,
-                                    'latency': latency,
-                                    'timestamp': time.time() # Record when the data was received
+                                self.dados_recebidos[id_robo] = {
+                                    'velocidades': velocidades,
+                                    'latencia': latencia,
+                                    'timestamp': time.time()
                                 }
                             except (ValueError, IndexError):
-                                print(f"  -> Warning: Malformed data block received: {block}")
+                                print(f"  -> Aviso: Bloco de dados mal formatado: {bloco}")
+
                     else:
-                        # If the format is not recognized, store it as raw data
-                        self.received_data['raw'] = line_str
+                        self.dados_recebidos['raw'] = linha_str
 
                 except UnicodeDecodeError:
-                    print(f"  -> Warning: Unicode decode error. Received data might be corrupted.")
+                    print(f"  -> Aviso: Erro de decodificação de bytes. Dados recebidos podem estar corrompidos.")
                 except Exception as e:
-                    print(f"  -> Unexpected error in reading thread: {e}")
+                    print(f"  -> Erro inesperado na thread de leitura: {e}")
             
-            # Brief pause to prevent the loop from consuming 100% CPU
             time.sleep(0.01)
 
-    # --- 2. KEY CHANGE IN THE CLASS ---
-    def send_command(self, command):
-        """
-        Sends a command string or a bytes object to the serial port.
-        This allows sending both human-readable text and packed binary data.
-        """
+    # --- 2. ALTERAÇÃO PRINCIPAL NA CLASSE ---
+    def enviar_comando(self, comando):
+        """Envia uma string de comando ou um objeto de bytes para a porta serial."""
         if self.ser and self.ser.is_open:
-            data_to_send = None
+            dados_para_enviar = None
             
-            # If the command is a string, encode it to bytes.
-            if isinstance(command, str):
-                if not command.endswith('\n'):
-                    command += '\n' # Ensure the command ends with a newline
-                data_to_send = command.encode('utf-8')
+            # Se o comando for uma string, codifique-o como antes.
+            if isinstance(comando, str):
+                if not comando.endswith('\n'):
+                    comando += '\n'
+                dados_para_enviar = comando.encode('utf-8')
             
-            # If the command is already bytes, use it directly.
-            elif isinstance(command, bytes):
-                data_to_send = command
+            # Se o comando já for bytes, use-o diretamente.
+            elif isinstance(comando, bytes):
+                dados_para_enviar = comando
             
             else:
-                print(f"ERROR: Data type '{type(command)}' cannot be sent.")
+                print(f"ERRO: Tipo de dado '{type(comando)}' não pode ser enviado.")
                 return
 
             try:
-                self.ser.write(data_to_send)
-                # print(f"Sent: {data_to_send}") # Uncomment for debugging
+                self.ser.write(dados_para_enviar)
+                # print(f"Enviado: {dados_para_enviar}") # Debug de envio
             except serial.SerialException as e:
-                print(f"ERROR while sending data: {e}")
+                print(f"ERRO ao enviar dados: {e}")
 
-    def get_data(self, robot_id):
-        """Returns the last received data for a specific robot ID."""
-        return self.received_data.get(robot_id)
+    def get_dados(self, id_robo):
+        """Retorna os últimos dados recebidos para um ID específico."""
+        return self.dados_recebidos.get(id_robo)
 
-    def close(self):
-        """Closes the serial port and safely stops the reading thread."""
-        print("Closing serial communication...")
-        self.running = False
-        if hasattr(self, 'read_thread'):
-            self.read_thread.join() # Wait for the thread to finish
+    def fechar(self):
+        """Fecha a porta serial e termina a thread de forma segura."""
+        print("Fechando a comunicação serial...")
+        self.rodando = False
+        self.thread_leitura.join()
         if self.ser and self.ser.is_open:
             self.ser.close()
-            print("Serial port closed.")
+            print("Porta serial fechada.")
 
 # =============================================================================
-#  EXAMPLE USAGE IN THE MAIN SCRIPT
+#  EXEMPLO DE USO NO SCRIPT PRINCIPAL
 # =============================================================================
 
 if __name__ == "__main__":
-    SERIAL_PORT = "COM11" # Change this to your serial port
+    PORTA_SERIAL = "COM11" 
     BAUDRATE = 115200
 
-    communicator = None
+    comunicador = None
     try:
-        # Initialize the communication handler
-        communicator = SerialCommunication(SERIAL_PORT, BAUDRATE)
+        comunicador = ComunicacaoSerial(PORTA_SERIAL, BAUDRATE)
         
-        target_robot_id = 0
-        counter = 0
+        id_robo_alvo = 0
+        contador = 0
 
         while True:
-            # --- 3. KEY CHANGE IN THE MAIN LOOP ---
+            # --- 3. ALTERAÇÃO PRINCIPAL NO LOOP ---
             
-            # Create a list of 12 integers to be sent.
-            values_to_send = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+            # Crie uma lista com os 15 inteiros que você quer enviar
+            valores_para_enviar = [666, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
             
-            # Define the data format for packing:
-            # '<' specifies little-endian byte order, common for ARM processors (like STM32).
-            # '12i' specifies twelve 32-bit signed integers.
-            data_format = '<12i'
+            # Defina o formato: 15 inteiros (i) de 32 bits em ordem de bytes little-endian (<)
+            # Little-endian é o padrão para processadores ARM (como o STM32)
+            formato = '<15i'
             
-            # Pack the list of values into a bytes object according to the specified format.
-            # The '*' unpacks the list into individual arguments for the pack function.
-            command_in_bytes = struct.pack(data_format, *values_to_send)
+            # Empacote os valores em um objeto de bytes
+            comando_em_bytes = struct.pack(formato, *valores_para_enviar)
             
-            # Send the packed bytes object over serial.
-            communicator.send_command(command_in_bytes)
+            # Envia o comando em formato de bytes
+            comunicador.enviar_comando(comando_em_bytes)
             
-            # Get the latest data received from the target robot.
-            current_data = communicator.get_data(target_robot_id)
+            dados_atuais = comunicador.get_dados(id_robo_alvo)
             
             print("-" * 30)
-            if current_data:
-                print(f"Last data received from Robot {target_robot_id}:")
-                print(f"  - Velocities: {current_data['velocities']}")
-                print(f"  - Latency: {current_data['latency']:.4f} s")
-                print(f"  - Received: {time.time() - current_data['timestamp']:.2f} s ago")
+            if dados_atuais:
+                print(f"Últimos dados recebidos do Robô {id_robo_alvo}:")
+                print(f"  - Velocidades: {dados_atuais['velocidades']}")
+                print(f"  - Latência: {dados_atuais['latencia']:.4f} s")
+                print(f"  - Recebido há: {time.time() - dados_atuais['timestamp']:.2f} s")
             else:
-                print(f"Waiting for data from Robot {target_robot_id}...")
+                print(f"Aguardando dados do Robô {id_robo_alvo}...")
 
-            counter += 1
-            time.sleep(1) # Wait for 1 second before the next iteration.
+            contador += 1
+            time.sleep(0.1)
 
     except serial.SerialException:
-        print("Program terminated due to a serial port failure.")
+        print("Programa encerrado devido a falha na porta serial.")
     except KeyboardInterrupt:
-        print("\nProgram interrupted by user.")
+        print("\nPrograma interrompido pelo usuário.")
     finally:
-        # Ensure the serial port is closed properly on exit.
-        if communicator:
-            communicator.close()
+        if comunicador:
+            comunicador.fechar()
