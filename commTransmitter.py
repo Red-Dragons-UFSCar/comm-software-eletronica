@@ -2,10 +2,33 @@ import serial
 import time
 import threading
 import struct 
+from ssl_simulation_robot_control_pb2 import RobotControl
 
 # =============================================================================
 #  CLASSE PARA GERENCIAR A COMUNICAÇÃO SERIAL
 # =============================================================================
+
+RECEIVER_FPS = 3000  # Taxa de aquisição da rede dos pacotes do software
+CONTROL_FPS = 60  # Taxa de envio para o STM (Pode alterar aqui se necessário)
+
+class RobotVelocity:
+    """
+    Descrição:
+        Classe para armazenar as velocidades de cada robô
+    Entradas:
+        id_robot:   Robô que corresponde às velocidades do objeto (0 a 2)
+    """
+    def __init__(self, id_robot):
+        self.id_robot = id_robot  # id do robô
+        # Velocidades angulares
+        self.wheel_velocity_front_right = 0 
+        self.wheel_velocity_back_right = 0
+        self.wheel_velocity_back_left = 0
+        self.wheel_velocity_front_left = 0
+        self.kick_speed = 0
+
+        self.cont_not_message = 0
+        self.treshold_message = 2*RECEIVER_FPS
 
 class ComunicacaoSerial:
     def __init__(self, porta, baudrate=115200, timeout=1):
@@ -109,14 +132,36 @@ class ComunicacaoSerial:
         if self.ser and self.ser.is_open:
             self.ser.close()
             print("Porta serial fechada.")
+    
+    def decode_message(self, message):
+        id_robot = message.robot_commands[0].id
+        wheel_velocity_front_right = message.robot_commands[0].move_command.wheel_velocity.front_right
+        wheel_velocity_back_right = message.robot_commands[0].move_command.wheel_velocity.back_right
+        wheel_velocity_back_left = message.robot_commands[0].move_command.wheel_velocity.back_left
+        wheel_velocity_front_left = message.robot_commands[0].move_command.wheel_velocity.front_left
+        kick_speed = message.robot_commands[0].kick_speed
+        self.robots[id_robot].wheel_velocity_front_right = wheel_velocity_front_right
+        self.robots[id_robot].wheel_velocity_back_right = wheel_velocity_back_right
+        self.robots[id_robot].wheel_velocity_back_left = wheel_velocity_back_left
+        self.robots[id_robot].wheel_velocity_front_left = wheel_velocity_front_left
+        self.robots[id_robot].cont_not_message = 0
+        self.robots[id_robot].kick_speed = kick_speed
 
 # =============================================================================
-#  EXEMPLO DE USO NO SCRIPT PRINCIPAL
+#  EXEMPLO DE USO NO SCRIPT PRINCIPALRedSSL/communication/proto/ssl_simulation_robot_control_pb2.py RedSSL/communication/proto/ssl_simulation_robot_control.proto
 # =============================================================================
 
 if __name__ == "__main__":
     PORTA_SERIAL = "COM11" 
     BAUDRATE = 115200
+
+    # instâncias dos robôs
+    robot0 = RobotVelocity(0)
+    robot1 = RobotVelocity(1)
+    robot2 = RobotVelocity(2)
+    
+    # Para testes pode ativar kicker assim:
+    # robot0.kick_speed = 5.0
 
     comunicador = None
     try:
@@ -126,16 +171,31 @@ if __name__ == "__main__":
         contador = 0
 
         while True:
-            # --- 3. ALTERAÇÃO PRINCIPAL NO LOOP ---
-            
-            # Crie uma lista com os 15 inteiros que você quer enviar
-            valores_para_enviar = [666, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-            
-            # Defina o formato: 15 inteiros (i) de 32 bits em ordem de bytes little-endian (<)
-            # Little-endian é o padrão para processadores ARM (como o STM32)
-            formato = '<15i'
-            
-            # Empacote os valores em um objeto de bytes
+            # Envio: (4 velocidades + kicker) * 3 robôs = 15 inteiros
+            def kicker_bit(r): # Se o kicker estiver ativo, retorna 1, senão 0
+                return 1 if getattr(r, 'kick_speed', 0) != 0 else 0
+
+            valores_para_enviar = [
+                int(robot0.wheel_velocity_front_left),
+                int(robot0.wheel_velocity_back_left),
+                int(robot0.wheel_velocity_back_right),
+                int(robot0.wheel_velocity_front_right),
+                kicker_bit(robot0),
+
+                int(robot1.wheel_velocity_front_left),
+                int(robot1.wheel_velocity_back_left),
+                int(robot1.wheel_velocity_back_right),
+                int(robot1.wheel_velocity_front_right),
+                kicker_bit(robot1),
+
+                int(robot2.wheel_velocity_front_left),
+                int(robot2.wheel_velocity_back_left),
+                int(robot2.wheel_velocity_back_right),
+                int(robot2.wheel_velocity_front_right),
+                kicker_bit(robot2),
+            ]
+
+            formato = f'<{len(valores_para_enviar)}i'  # 15 inteiros
             comando_em_bytes = struct.pack(formato, *valores_para_enviar)
             
             # Envia o comando em formato de bytes
