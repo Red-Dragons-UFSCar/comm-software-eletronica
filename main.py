@@ -334,26 +334,26 @@ while True:
         return 1 if getattr(r, 'kick_speed', 0) != 0 else 0
 
     valores_para_enviar = [
-        int(robot0.wheel_velocity_front_left),
-        int(robot0.wheel_velocity_back_left),
-        int(robot0.wheel_velocity_back_right),
-        int(robot0.wheel_velocity_front_right),
+        -int(robot0.wheel_velocity_front_left),
+        -int(robot0.wheel_velocity_front_right),
+        -int(robot0.wheel_velocity_back_right),
+        -int(robot0.wheel_velocity_back_left),
         kicker_bit(robot0),
 
-        int(robot1.wheel_velocity_front_left),
-        int(robot1.wheel_velocity_back_left),
-        int(robot1.wheel_velocity_back_right),
-        int(robot1.wheel_velocity_front_right),
+        -int(3.5*robot1.wheel_velocity_front_left),
+        -int(3.5*robot1.wheel_velocity_back_left),
+        -int(3.5*robot1.wheel_velocity_back_right),
+        -int(3.5*robot1.wheel_velocity_front_right),
         kicker_bit(robot1),
 
-        int(robot2.wheel_velocity_front_left),
-        int(robot2.wheel_velocity_back_left),
-        int(robot2.wheel_velocity_back_right),
-        int(robot2.wheel_velocity_front_right),
+        -int(robot2.wheel_velocity_front_left),
+        -int(robot2.wheel_velocity_back_left),
+        -int(robot2.wheel_velocity_back_right),
+        -int(robot2.wheel_velocity_front_right),
         kicker_bit(robot2),
     ]
     
-    # print(f"[DEBUG] Lista enviada: {valores_para_enviar}\n")
+    print(f"[DEBUG] Lista enviada: {valores_para_enviar}\n")
 
     formato = f'<{len(valores_para_enviar)}i'  # 15 inteiros
     comando_em_bytes = struct.pack(formato, *valores_para_enviar)
@@ -364,7 +364,7 @@ while True:
         comunicador.enviar_comando(comando_em_bytes)
         
         # Valores recebidos da eletrônica
-        id_robo_alvo = 0
+        id_robo_alvo = 1
         dados_atuais = comunicador.get_dados(id_robo_alvo)
                 
         print("-" * 30)
