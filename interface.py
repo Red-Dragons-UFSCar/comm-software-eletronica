@@ -129,12 +129,12 @@ def draw_button():
     pygame.draw.circle(screen, indicator_color, (button_rect.left - 20, button_rect.centery), 10)
 
 
-imput_texts["linear_0"] = "10"
-imput_texts["angular_0"] = "50.0"
-imput_texts["linear_1"] = "10"
-imput_texts["angular_1"] = "50.0"
-imput_texts["linear_2"] = "10"
-imput_texts["angular_2"] = "50.0"
+imput_texts["linear_0"] = "1"
+imput_texts["angular_0"] = "5.0"
+imput_texts["linear_1"] = "1"
+imput_texts["angular_1"] = "5.0"
+imput_texts["linear_2"] = "1"
+imput_texts["angular_2"] = "5.0"
 imput_texts["comm_port"] = "10330"
 imput_texts["comm_ip"] = "localhost"
 
