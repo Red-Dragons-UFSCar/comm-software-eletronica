@@ -6,8 +6,7 @@ import serial
 import numpy as np
 from proto.ssl_simulation_robot_control_pb2 import RobotControl
 
-CONV_GEAR = 1.25
-CONV_RAD_HZ = 1/(2*np.pi)
+CONV_RAD_HZ = 2*np.pi
 
 RECEIVER_FPS = 3000  # Taxa de aquisição da rede dos pacotes do software
 RECEIVER_PORT = 10330   # Mesma porta que o código está mandando os comandos
@@ -340,10 +339,10 @@ while True:
         -int(robot0.wheel_velocity_back_left),
         kicker_bit(robot0),
 
-        -int(3.5*robot1.wheel_velocity_front_left),
-        -int(3.5*robot1.wheel_velocity_back_left),
-        -int(3.5*robot1.wheel_velocity_back_right),
-        -int(3.5*robot1.wheel_velocity_front_right),
+        -int(robot1.wheel_velocity_front_left * CONV_RAD_HZ),
+        -int(robot1.wheel_velocity_back_left * CONV_RAD_HZ),
+        -int(robot1.wheel_velocity_back_right * CONV_RAD_HZ),
+        -int(robot1.wheel_velocity_front_right * CONV_RAD_HZ),
         kicker_bit(robot1),
 
         -int(robot2.wheel_velocity_front_left),
