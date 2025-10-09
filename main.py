@@ -8,7 +8,7 @@ CONV_RAD_HZ = 2*np.pi        # Conversão das velocidades para rad/s
 RECEIVER_PORT = 10330       # Mesma porta que o código está mandando os comandos
 CONTROL_FPS = 60        # Taxa de envio para o STM (Pode alterar aqui se necessário)
 
-SERIAL_FLAG = False      # Habilita a comunicação por SERIAL (False para testar o SOCKET)
+SERIAL_FLAG = True      # Habilita a comunicação por SERIAL (False para testar o SOCKET)
 SERIAL_PORT = '/dev/ttyACM1'        # Conferir a USB utilizada
 SERIAL_BAUD_RATE = 115200
 
@@ -81,9 +81,9 @@ while True:
 
     valores_para_enviar = [
         inverter * int(robot0.wheel_velocity_front_left * CONV_RAD_HZ),
-        inverter * int(robot0.wheel_velocity_front_right * CONV_RAD_HZ),
-        inverter * int(robot0.wheel_velocity_back_right * CONV_RAD_HZ),
         inverter * int(robot0.wheel_velocity_back_left * CONV_RAD_HZ),
+        inverter * int(robot0.wheel_velocity_back_right * CONV_RAD_HZ),
+        inverter * int(robot0.wheel_velocity_front_right * CONV_RAD_HZ),
         kicker_bit(robot0),
 
         inverter * int(robot1.wheel_velocity_front_left * CONV_RAD_HZ),
