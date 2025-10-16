@@ -5,7 +5,7 @@ from communicators import Receiver, ComunicacaoSerial
 
 CONV_RAD_HZ = 2*np.pi        # Conversão das velocidades para rad/s
 
-RECEIVER_PORT = 10330       # Mesma porta que o código está mandando os comandos
+RECEIVER_PORT = 10322       # Mesma porta que o código está mandando os comandos
 CONTROL_FPS = 60        # Taxa de envio para o STM (Pode alterar aqui se necessário)
 
 SERIAL_FLAG = True      # Habilita a comunicação por SERIAL (False para testar o SOCKET)
@@ -79,12 +79,15 @@ while True:
     def kicker_bit(r): # Se o kicker estiver ativo, retorna 1, senão 0
         return 1 if getattr(r, 'kick_speed', 0) != 0 else 0
 
+    # Robô 2 é o atacante no software, mas Robô 0 para eletrônica
+    # ...
+    
     valores_para_enviar = [
-        inverter * int(robot0.wheel_velocity_front_left * CONV_RAD_HZ),
-        inverter * int(robot0.wheel_velocity_back_left * CONV_RAD_HZ),
-        inverter * int(robot0.wheel_velocity_back_right * CONV_RAD_HZ),
-        inverter * int(robot0.wheel_velocity_front_right * CONV_RAD_HZ),
-        kicker_bit(robot0),
+        inverter * int(robot2.wheel_velocity_front_left * CONV_RAD_HZ),
+        inverter * int(robot2.wheel_velocity_back_left * CONV_RAD_HZ),
+        inverter * int(robot2.wheel_velocity_back_right * CONV_RAD_HZ),
+        inverter * int(robot2.wheel_velocity_front_right * CONV_RAD_HZ),
+        kicker_bit(robot2),
 
         inverter * int(robot1.wheel_velocity_front_left * CONV_RAD_HZ),
         inverter * int(robot1.wheel_velocity_back_left * CONV_RAD_HZ),
@@ -92,11 +95,11 @@ while True:
         inverter * int(robot1.wheel_velocity_front_right * CONV_RAD_HZ),
         kicker_bit(robot1),
 
-        inverter * int(robot2.wheel_velocity_front_left * CONV_RAD_HZ),
-        inverter * int(robot2.wheel_velocity_back_left * CONV_RAD_HZ),
-        inverter * int(robot2.wheel_velocity_back_right * CONV_RAD_HZ),
-        inverter * int(robot2.wheel_velocity_front_right * CONV_RAD_HZ),
-        kicker_bit(robot2),
+        inverter * int(robot0.wheel_velocity_front_left * CONV_RAD_HZ),
+        inverter * int(robot0.wheel_velocity_back_left * CONV_RAD_HZ),
+        inverter * int(robot0.wheel_velocity_back_right * CONV_RAD_HZ),
+        inverter * int(robot0.wheel_velocity_front_right * CONV_RAD_HZ),
+        kicker_bit(robot0),
     ]
     
     print(f"[DEBUG] Lista enviada: {valores_para_enviar}\n")
