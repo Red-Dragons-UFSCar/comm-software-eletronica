@@ -2,15 +2,20 @@ import pygame
 import time
 from proto.actuator import Actuator
 
-# Inicializar o Pygame
 pygame.init()
+pygame.joystick.init()
+joystick = None
+if pygame.joystick.get_count() > 0:
+    joystick = pygame.joystick.Joystick(0)
+    joystick.init()
 
-# Configurações da tela
+JOYSTICK_DEADZONE = 0.25
+JOY_BUTTON_A = 0  # botão A do controle (Xbox-like)
+
 screen_width, screen_height = 1200, 600
 screen = pygame.display.set_mode((screen_width, screen_height))
 pygame.display.set_caption("Controlador Manual - Red Dragons - 2025v1")
 
-# Cores
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 GRAY = (200, 200, 200)
@@ -18,24 +23,37 @@ GREEN = (0, 255, 0)
 RED = (255, 0, 0)
 LIGHT_GRAY = (230, 230, 230)
 
-# Fonte
 font = pygame.font.Font(None, 60)
 small_font = pygame.font.Font(None, 30)
 
-robo_font = pygame.font.Font(None, 40)  # Fonte para o título
-robo0_text = robo_font.render("Robô 0", True, BLACK)  # Renderizar o título
-robo1_text = robo_font.render("Robô 1", True, BLACK)  # Renderizar o título
-robo2_text = robo_font.render("Robô 2", True, BLACK)  # Renderizar o título
+robo_font = pygame.font.Font(None, 40)
+robo0_text = robo_font.render("Robô 0", True, BLACK)
+robo1_text = robo_font.render("Robô 1", True, BLACK)
+robo2_text = robo_font.render("Robô 2", True, BLACK)
 
-# Função para desenhar a tecla
-def draw_key(key, rect, pressed):
-    color = GREEN if pressed else GRAY
+def draw_key(key, rect, pressed, intensity=None):
+    # intensidade de 0..1 mistura GRAY->GREEN
+    if intensity is None:
+        color = GREEN if pressed else GRAY
+    else:
+        t = max(0.0, min(1.0, float(intensity)))
+        color = (
+            int(GRAY[0] + (GREEN[0] - GRAY[0]) * t),
+            int(GRAY[1] + (GREEN[1] - GRAY[1]) * t),
+            int(GRAY[2] + (GREEN[2] - GRAY[2]) * t),
+        )
     pygame.draw.rect(screen, color, rect)
     text = font.render(key, True, BLACK)
     text_rect = text.get_rect(center=rect.center)
     screen.blit(text, text_rect)
+    # barra de intensidade no rodapé da tecla, se houver
+    if intensity is not None and intensity > 0:
+        bar_margin = 6
+        bar_height = 10
+        bar_width = int((rect.width - 2 * bar_margin) * max(0.0, min(1.0, intensity)))
+        bar_rect = pygame.Rect(rect.x + bar_margin, rect.bottom - bar_margin - bar_height, bar_width, bar_height)
+        pygame.draw.rect(screen, BLACK, bar_rect, 0)
 
-# Configurações das teclas (posição e tamanho)
 key_size = (80, 80)
 keys = {
     "W": pygame.Rect(160, 75, *key_size),
@@ -44,7 +62,7 @@ keys = {
     "D": pygame.Rect(240, 150, *key_size),
     "Q": pygame.Rect(80, 75, *key_size),
     "E": pygame.Rect(240, 75, *key_size),
-    "X": pygame.Rect(160, 240, *key_size),  # Chute robô 0
+    "X": pygame.Rect(160, 240, *key_size),
 
     "I": pygame.Rect(160+300, 75, *key_size),
     "J": pygame.Rect(80+300, 150, *key_size),
@@ -52,7 +70,7 @@ keys = {
     "L": pygame.Rect(240+300, 150, *key_size),
     "U": pygame.Rect(80+300, 75, *key_size),
     "O": pygame.Rect(240+300, 75, *key_size),
-    "M": pygame.Rect(160+300, 240, *key_size),  # Chute robô 1
+    "M": pygame.Rect(160+300, 240, *key_size),
 
     "5": pygame.Rect(160+600, 75, *key_size),
     "1": pygame.Rect(80+600, 150, *key_size),
@@ -60,10 +78,9 @@ keys = {
     "3": pygame.Rect(240+600, 150, *key_size),
     "4": pygame.Rect(80+600, 75, *key_size),
     "6": pygame.Rect(240+600, 75, *key_size),
-    "0": pygame.Rect(160+600, 240, *key_size),  # Chute robô 2
+    "0": pygame.Rect(160+600, 240, *key_size),
 }
 
-# Campos de texto para velocidade linear e angular
 input_boxes = {
     "linear_0": pygame.Rect(100, 380, 100, 40),
     "angular_0": pygame.Rect(100, 480, 100, 40),
@@ -76,43 +93,36 @@ input_boxes = {
 }
 
 imput_texts = {
-    "linear_0": "", 
-    "angular_0": "",
-    "linear_1": "", 
-    "angular_1": "",
-    "linear_2": "", 
-    "angular_2": "",
-    "comm_port": "",
-    "comm_ip": ""
+    "linear_0": "1",
+    "angular_0": "5.0",
+    "linear_1": "1",
+    "angular_1": "5.0",
+    "linear_2": "1",
+    "angular_2": "5.0",
+    "comm_port": "10330",
+    "comm_ip": "localhost"
 }
 
 active_box = None
-
 cursor_visible = True
 last_cursor_toggle = time.time()
 
-connected = False  # Variável que indica o estado de conexão
-button_rect = pygame.Rect(1000, 300, 150, 40)  # Posição e tamanho do botão "Conectar"
+connected = False
+button_rect = pygame.Rect(1000, 300, 150, 40)
 
-# Função para desenhar campo de texto
 def draw_input_box(name, rect, text, is_active):
     color = BLACK if is_active else LIGHT_GRAY
     pygame.draw.rect(screen, color, rect, 2)
     label = small_font.render(name, True, BLACK)
-    screen.blit(label, (rect.x, rect.y - 30))  # Colocar rótulo acima do campo
+    screen.blit(label, (rect.x, rect.y - 30))
     text_surface = small_font.render(text, True, BLACK)
     screen.blit(text_surface, (rect.x + 5, rect.y + 5))
-
-    # Desenhar o cursor se a caixa estiver ativa
     if is_active:
-        # Alternar visibilidade do cursor
         global cursor_visible, last_cursor_toggle
-        if time.time() - last_cursor_toggle > 0.3:  # Piscar o cursor a cada 0.5 segundos
+        if time.time() - last_cursor_toggle > 0.3:
             cursor_visible = not cursor_visible
             last_cursor_toggle = time.time()
-
         if cursor_visible:
-            # Posição do cursor é após o texto atual
             cursor_x = rect.x + 5 + text_surface.get_width()
             cursor_y = rect.y + 5
             cursor_height = text_surface.get_height()
@@ -123,34 +133,29 @@ def draw_button():
     button_text = small_font.render("Conectar", True, BLACK)
     text_rect = button_text.get_rect(center=button_rect.center)
     screen.blit(button_text, text_rect)
-
-    # Desenhar o indicador de conexão (um círculo)
     indicator_color = GREEN if connected else RED
     pygame.draw.circle(screen, indicator_color, (button_rect.left - 20, button_rect.centery), 10)
 
-
-imput_texts["linear_0"] = "1"
-imput_texts["angular_0"] = "5.0"
-imput_texts["linear_1"] = "1"
-imput_texts["angular_1"] = "5.0"
-imput_texts["linear_2"] = "1"
-imput_texts["angular_2"] = "5.0"
-imput_texts["comm_port"] = "10330"
-imput_texts["comm_ip"] = "localhost"
-
 def verify_is_number(value):
     try:
-        valor_convertido = float(value)
+        return float(value)
     except:
-        valor_convertido = 0
-    return valor_convertido
+        return 0.0
 
-# Loop principal
+def apply_deadzone(value, dz=JOYSTICK_DEADZONE, rescale=True):
+    v = float(value)
+    if abs(v) <= dz:
+        return 0.0
+    if not rescale:
+        return v
+    # reescala para usar todo o curso fora da deadzone ficando em [-1, 1]
+    s = 1.0 if v > 0 else -1.0
+    return s * (abs(v) - dz) / (1.0 - dz)
+
 running = True
 while running:
     screen.fill(WHITE)
 
-    # Verificar eventos
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -159,44 +164,32 @@ while running:
                 if not connected:
                     ip = imput_texts["comm_ip"]
                     port = int(imput_texts['comm_port'])
-
                     print("IP: ", ip)
-                    print("Porta: ", port )
+                    print("Porta: ", port)
                     actuator = Actuator(ip=ip, team_port=port, logger=False)
-                    connected = not connected  # Alternar o estado de conexão
+                    connected = True
             else:
-                # Verificar se o clique foi em um campo de texto
                 for key, box in input_boxes.items():
                     if box.collidepoint(event.pos):
                         active_box = key
                         break
                 else:
                     active_box = None
-        elif event.type == pygame.KEYDOWN:
-            if active_box:
-                if event.key == pygame.K_BACKSPACE:
-                    imput_texts[active_box] = imput_texts[active_box][:-1]
-                elif event.key == pygame.K_RETURN:
-                    active_box = None
-                else:
-                    imput_texts[active_box] += event.unicode
+        elif event.type == pygame.KEYDOWN and active_box:
+            if event.key == pygame.K_BACKSPACE:
+                imput_texts[active_box] = imput_texts[active_box][:-1]
+            elif event.key == pygame.K_RETURN:
+                active_box = None
+            else:
+                imput_texts[active_box] += event.unicode
 
-    screen.blit(robo0_text, (200 - robo0_text.get_width() // 2, 10))  # Posicionar o título no centro
-    screen.blit(robo1_text, (500 - robo0_text.get_width() // 2, 10))  # Posicionar o título no centro
-    screen.blit(robo2_text, (800 - robo0_text.get_width() // 2, 10))  # Posicionar o título no centro
+    screen.blit(robo0_text, (200 - robo0_text.get_width() // 2, 10))
+    screen.blit(robo1_text, (500 - robo1_text.get_width() // 2, 10))
+    screen.blit(robo2_text, (800 - robo2_text.get_width() // 2, 10))
 
-    # Verificar eventos
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-
-    # Verificar estado das teclas
     pressed_keys = pygame.key.get_pressed()
-
-    # Desenhar o botão "Conectar" e o indicador de conexão
     draw_button()
 
-    # Desenhar campos de texto para velocidades
     draw_input_box("Velocidade Linear", input_boxes["linear_0"], imput_texts["linear_0"], active_box == "linear_0")
     draw_input_box("Velocidade Angular", input_boxes["angular_0"], imput_texts["angular_0"], active_box == "angular_0")
     draw_input_box("Velocidade Linear", input_boxes["linear_1"], imput_texts["linear_1"], active_box == "linear_1")
@@ -213,40 +206,79 @@ while running:
     velocidade_linear_2 = verify_is_number(imput_texts["linear_2"])
     velocidade_angular_2 = verify_is_number(imput_texts["angular_2"])
 
-    # print("Robo 0: ")
-    # print("Velocidade Linear:", velocidade_linear_0)
-    # print("Velocidade Angular:", velocidade_angular_0)
-    # print("Robo 1: ")
-    # print("Velocidade Linear:", velocidade_linear_1)
-    # print("Velocidade Angular:", velocidade_angular_1)
-    # print("Robo 2: ")
-    # print("Velocidade Linear:", velocidade_linear_2)
-    # print("Velocidade Angular:", velocidade_angular_2)
+    # inputs normalizados [-1..1] e velocidades
+    in_fwd_0 = 0.0      # + frente, - trás (W/S)
+    in_lat_0 = 0.0      # + esquerda, - direita (A/D)
+    in_rot_0 = 0.0      # + anti-horário, - horário (Q/E)
 
-    vx_0, vy_0, w_0 = 0, 0, 0
-    vx_1, vy_1, w_1 = 0, 0, 0
-    vx_2, vy_2, w_2 = 0, 0, 0
-    kick_0 = 0
-    kick_1 = 0
-    kick_2 = 0
+    vx_0 = vy_0 = w_0 = 0.0
+    vx_1 = vy_1 = w_1 = 0.0
+    vx_2 = vy_2 = w_2 = 0.0
+    kick_0 = kick_1 = kick_2 = 0
 
-    # Desenhar as teclas
-    draw_key("W", keys["W"], pressed_keys[pygame.K_w])
-    draw_key("A", keys["A"], pressed_keys[pygame.K_a])
-    draw_key("S", keys["S"], pressed_keys[pygame.K_s])
-    draw_key("D", keys["D"], pressed_keys[pygame.K_d])
-    draw_key("Q", keys["Q"], pressed_keys[pygame.K_q])
-    draw_key("E", keys["E"], pressed_keys[pygame.K_e])
-    draw_key("X", keys["X"], pressed_keys[pygame.K_x])
+    # Joystick robô 0 (analógicos -> inputs proporcionais)
+    joy_used = False
+    joy_rot_used = False
+    axis_x = axis_y = axis_rx = 0.0
+    joy_btn_a = False
+    if joystick:
+        axis_x = joystick.get_axis(0)  # esquerdo X
+        axis_y = joystick.get_axis(1)  # esquerdo Y
+        if joystick.get_numaxes() > 3:
+            axis_rx = joystick.get_axis(3)  # direito X
+        if joystick.get_numbuttons() > JOY_BUTTON_A:
+            joy_btn_a = bool(joystick.get_button(JOY_BUTTON_A))  # botão A -> chute
 
-    if pressed_keys[pygame.K_w]: vx_0 += velocidade_linear_0
-    if pressed_keys[pygame.K_s]: vx_0 -= velocidade_linear_0
-    if pressed_keys[pygame.K_a]: vy_0 += velocidade_linear_0
-    if pressed_keys[pygame.K_d]: vy_0 -= velocidade_linear_0
-    if pressed_keys[pygame.K_q]: w_0 += velocidade_angular_0
-    if pressed_keys[pygame.K_e]: w_0 -= velocidade_angular_0
-    if pressed_keys[pygame.K_x]: kick_0 = 1
+        in_lat_0 = -apply_deadzone(axis_x)   # A(+)/D(-)
+        in_fwd_0 = -apply_deadzone(axis_y)   # W(+)/S(-) (Y invertido)
+        joy_used = (abs(in_lat_0) > 0) or (abs(in_fwd_0) > 0)
 
+        in_rot_0 = -apply_deadzone(axis_rx)  # Q(+)/E(-)
+        joy_rot_used = abs(in_rot_0) > 0
+
+    # Teclado robô 0 (fallback quando o analógico está parado)
+    if not joy_used:
+        if pressed_keys[pygame.K_w]: in_fwd_0 += 1.0
+        if pressed_keys[pygame.K_s]: in_fwd_0 -= 1.0
+        if pressed_keys[pygame.K_a]: in_lat_0 += 1.0
+        if pressed_keys[pygame.K_d]: in_lat_0 -= 1.0
+    if not joy_rot_used:
+        if pressed_keys[pygame.K_q]: in_rot_0 += 1.0
+        if pressed_keys[pygame.K_e]: in_rot_0 -= 1.0
+
+    # clamp inputs para [-1, 1]
+    in_fwd_0 = max(-1.0, min(1.0, in_fwd_0))
+    in_lat_0 = max(-1.0, min(1.0, in_lat_0))
+    in_rot_0 = max(-1.0, min(1.0, in_rot_0))
+
+    # aplica velocidades
+    vx_0 = in_fwd_0 * velocidade_linear_0
+    vy_0 = in_lat_0 * velocidade_linear_0
+    w_0  = in_rot_0 * velocidade_angular_0
+
+    # chute: tecla X ou botão A do controle
+    kick_active_0 = pressed_keys[pygame.K_x] or joy_btn_a
+    if kick_active_0:
+        kick_0 = 1
+
+    # Intensidades para UI (0..1)
+    inten_W = max(0.0, in_fwd_0)
+    inten_S = max(0.0, -in_fwd_0)
+    inten_A = max(0.0, in_lat_0)
+    inten_D = max(0.0, -in_lat_0)
+    inten_Q = max(0.0, in_rot_0)
+    inten_E = max(0.0, -in_rot_0)
+
+    # Desenhar teclas robô 0 com intensidade proporcional
+    draw_key("W", keys["W"], inten_W > 0 or pressed_keys[pygame.K_w], intensity=inten_W)
+    draw_key("A", keys["A"], inten_A > 0 or pressed_keys[pygame.K_a], intensity=inten_A)
+    draw_key("S", keys["S"], inten_S > 0 or pressed_keys[pygame.K_s], intensity=inten_S)
+    draw_key("D", keys["D"], inten_D > 0 or pressed_keys[pygame.K_d], intensity=inten_D)
+    draw_key("Q", keys["Q"], inten_Q > 0 or pressed_keys[pygame.K_q], intensity=inten_Q)
+    draw_key("E", keys["E"], inten_E > 0 or pressed_keys[pygame.K_e], intensity=inten_E)
+    draw_key("X", keys["X"], kick_active_0)
+
+    # Robô 1 (sem mudanças)
     draw_key("I", keys["I"], pressed_keys[pygame.K_i])
     draw_key("J", keys["J"], pressed_keys[pygame.K_j])
     draw_key("K", keys["K"], pressed_keys[pygame.K_k])
@@ -263,6 +295,7 @@ while running:
     if pressed_keys[pygame.K_o]: w_1 -= velocidade_angular_1
     if pressed_keys[pygame.K_m]: kick_1 = 1
 
+    # Robô 2 (sem mudanças)
     draw_key("5", keys["5"], pressed_keys[pygame.K_5] or pressed_keys[pygame.K_KP5])
     draw_key("1", keys["1"], pressed_keys[pygame.K_1] or pressed_keys[pygame.K_KP1])
     draw_key("2", keys["2"], pressed_keys[pygame.K_2] or pressed_keys[pygame.K_KP2])
@@ -279,14 +312,11 @@ while running:
     if pressed_keys[pygame.K_6] or pressed_keys[pygame.K_KP6]: w_2 -= velocidade_angular_2
     if pressed_keys[pygame.K_0] or pressed_keys[pygame.K_KP0]: kick_2 = 1
 
-    if active_box is None:
-        if connected:
-            actuator.send_localVelocity_message(0, vx_0, vy_0, w_0, kick_0)
-            actuator.send_localVelocity_message(1, vx_1, vy_1, w_1, kick_1)
-            actuator.send_localVelocity_message(2, vx_2, vy_2, w_2, kick_2)
+    if active_box is None and connected:
+        actuator.send_localVelocity_message(0, vx_0, vy_0, w_0, kick_0)
+        actuator.send_localVelocity_message(1, vx_1, vy_1, w_1, kick_1)
+        actuator.send_localVelocity_message(2, vx_2, vy_2, w_2, kick_2)
 
-    # Atualizar a tela
     pygame.display.flip()
 
-# Finalizar o Pygame
 pygame.quit()
