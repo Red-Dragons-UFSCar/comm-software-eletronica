@@ -19,6 +19,7 @@ class RepeatTimer(threading.Timer):
         while not self.finished.wait(self.interval):
             self.function(*self.args, **self.kwargs)
 
+
 class RobotVelocity:
     """
     Descrição:
@@ -38,16 +39,18 @@ class RobotVelocity:
         self.cont_not_message = 0
         self.treshold_message = 2*RECEIVER_FPS
 
+
 class Receiver():
-    def __init__(self, ip: str = 'localhost', port: int = 10330, logger: bool = False):
+    def __init__(self, ip: str = 'localhost', port: int = 10330, logger: bool = False, num_robots: int = 3):
         """
         Descrição:
             Classe para recepção de mensagens serializadas usando Google Protobuf.
         
         Entradas:
-            ip:       Endereço IP para escuta. Padrão é 'localhost'.
-            port:     Porta de escuta. Padrão é 10302.
-            logger:   Flag que ativa o log de recebimento de mensagens no terminal.
+            ip:         Endereço IP para escuta. Padrão é 'localhost'.
+            port:       Porta de escuta. Padrão é 10302.
+            logger:     Flag que ativa o log de recebimento de mensagens no terminal.
+            num_robots: Quantidade inicial de robôs a serem gerenciados (padrão 3).
         """
         # Parâmetros de rede
         self.ip = ip
@@ -57,11 +60,9 @@ class Receiver():
         # Controle de log
         self.logger = logger
 
-        # Robôs a serem controlados
-        self.robot0 = RobotVelocity(0)
-        self.robot1 = RobotVelocity(1)
-        self.robot2 = RobotVelocity(2)
-        self.robots = [self.robot0, self.robot1, self.robot2]
+        # Robôs a serem controlados (gerenciados em lista indexada pelo id_robot)
+        self.num_robots = num_robots
+        self.robots = [RobotVelocity(i) for i in range(self.num_robots)]
 
         # Criar socket
         self._create_socket()
@@ -116,20 +117,20 @@ class Receiver():
                 return None
             
     def decode_message(self, message):
-        id_robot = message.robot_commands[0].id
-        wheel_velocity_front_right = message.robot_commands[0].move_command.wheel_velocity.front_right
-        wheel_velocity_back_right = message.robot_commands[0].move_command.wheel_velocity.back_right
-        wheel_velocity_back_left = message.robot_commands[0].move_command.wheel_velocity.back_left
-        wheel_velocity_front_left = message.robot_commands[0].move_command.wheel_velocity.front_left
-        kick_speed = message.robot_commands[0].kick_speed
-        self.robots[id_robot].wheel_velocity_front_right = wheel_velocity_front_right
-        self.robots[id_robot].wheel_velocity_back_right = wheel_velocity_back_right
-        self.robots[id_robot].wheel_velocity_back_left = wheel_velocity_back_left
-        self.robots[id_robot].wheel_velocity_front_left = wheel_velocity_front_left
-        self.robots[id_robot].cont_not_message = 0
-        self.robots[id_robot].kick_speed = kick_speed
-
+        for robot_command in message.robot_commands:
+            id_robot = robot_command.id
+            # Expande a lista de robôs dinamicamente se receber um id maior do que o tamanho atual
+            while len(self.robots) <= id_robot:
+                self.robots.append(RobotVelocity(len(self.robots)))
             
+            robot = self.robots[id_robot]
+            robot.wheel_velocity_front_right = robot_command.move_command.wheel_velocity.front_right
+            robot.wheel_velocity_back_right = robot_command.move_command.wheel_velocity.back_right
+            robot.wheel_velocity_back_left = robot_command.move_command.wheel_velocity.back_left
+            robot.wheel_velocity_front_left = robot_command.move_command.wheel_velocity.front_left
+            robot.cont_not_message = 0
+            robot.kick_speed = robot_command.kick_speed
+
     def start_thread(self):
         """
         Descrição:
@@ -138,6 +139,7 @@ class Receiver():
         self.vision_thread = RepeatTimer((1 / RECEIVER_FPS), self.receive_socket)
         self.vision_thread.start()
         
+
 class ComunicacaoSerial:
     def __init__(self, porta, baudrate=115200, timeout=1):
         """
@@ -249,17 +251,3 @@ class ComunicacaoSerial:
         if self.ser and self.ser.is_open:
             self.ser.close()
             print("Porta serial fechada.")
-    
-    def decode_message(self, message):
-        id_robot = message.robot_commands[0].id
-        wheel_velocity_front_right = message.robot_commands[0].move_command.wheel_velocity.front_right
-        wheel_velocity_back_right = message.robot_commands[0].move_command.wheel_velocity.back_right
-        wheel_velocity_back_left = message.robot_commands[0].move_command.wheel_velocity.back_left
-        wheel_velocity_front_left = message.robot_commands[0].move_command.wheel_velocity.front_left
-        kick_speed = message.robot_commands[0].kick_speed
-        self.robots[id_robot].wheel_velocity_front_right = wheel_velocity_front_right
-        self.robots[id_robot].wheel_velocity_back_right = wheel_velocity_back_right
-        self.robots[id_robot].wheel_velocity_back_left = wheel_velocity_back_left
-        self.robots[id_robot].wheel_velocity_front_left = wheel_velocity_front_left
-        self.robots[id_robot].cont_not_message = 0
-        self.robots[id_robot].kick_speed = kick_speed

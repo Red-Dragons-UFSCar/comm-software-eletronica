@@ -5,19 +5,18 @@ from communicators import Receiver, ComunicacaoSerial
 
 CONV_RAD_HZ = 2*np.pi        # Conversão das velocidades para rad/s
 
-RECEIVER_PORT = 10322       # Mesma porta que o código está mandando os comandos
+RECEIVER_PORT = 10305       # Mesma porta que o código está mandando os comandos
 CONTROL_FPS = 60        # Taxa de envio para o STM (Pode alterar aqui se necessário)
 
-SERIAL_FLAG = True      # Habilita a comunicação por SERIAL (False para testar o SOCKET)
-SERIAL_PORT = '/dev/ttyACM1'        # Conferir a USB utilizada
+SERIAL_FLAG = False      # Habilita a comunicação por SERIAL (False para testar o SOCKET)
+SERIAL_PORT = '/dev/ttyACM0'        # Conferir a USB utilizada
 SERIAL_BAUD_RATE = 115200
 
 # O código principal inverte os motores, coloque True para desinverter
-MAIN_CODE = True
+MAIN_CODE = False
 
-# ---------------------------------------------------------------------------------------------
-#   INICIO DO CÓDIGO PRINCIPAL
-# ---------------------------------------------------------------------------------------------
+# Número de robôs a serem controlados
+NUM_ROBOTS = 6
 
 # Invertendo as velocidades
 if MAIN_CODE:
@@ -26,7 +25,7 @@ else:
     inverter = 1
 
 # Inicialização do recebimento das mensagens via socket
-receiver = Receiver(port=RECEIVER_PORT, logger=False)
+receiver = Receiver(port=RECEIVER_PORT, logger=False, num_robots=NUM_ROBOTS)
 receiver.start_thread()
 
 # Inicialização do objeto serial
@@ -38,69 +37,40 @@ while True:
     t1 = time.time()
 
     receiver.receive_socket()
-    # Acesso das variáveis obtidas pela rede em cada um dos robôs [0, 1 e 2]
+    # Acesso das variáveis obtidas pela rede
     for robot in receiver.robots:
-        print("Robô ", robot.id_robot)
+        print(f"Robô {robot.id_robot}")
         print("Frente direita: ", robot.wheel_velocity_front_right)
         print("Frente esquerda: ", robot.wheel_velocity_front_left)
         print("Trás direita: ", robot.wheel_velocity_back_right)
         print("Trás esquerda: ", robot.wheel_velocity_back_left)
         print(f"Kick speed: {robot.kick_speed}\n")
 
-    # Caso a interface com o teclado não esteja pronta ainda, descomente as linhas abaixo
-    # Elas possuem casos padrão para testes básicos de validação.
-
-    # Robô 0 a 0.5m/s pra frente - descomentar as próximas 5 linhas
-    robot0 = receiver.robots[0]
-    #robot0.wheel_velocity_front_right = 0
-    #robot0.wheel_velocity_front_left = 0
-    # robot0.wheel_velocity_back_right = 0
-    #robot0.wheel_velocity_back_left = 0
-
-    # Robô 1 a 0.5m/s pra cima - descomentar as próximas 5 linhas
-    robot1 = receiver.robots[1]
-    # robot1.wheel_velocity_front_right = 9.25926
-    # robot1.wheel_velocity_front_left = 9.259256
-    # robot1.wheel_velocity_back_right = -13.09457
-    # robot1.wheel_velocity_back_left = -13.09457
-
-    # Robô 2 a 1 rad/s (apenas girando) - descomentar as próximas 5 linhas
-    robot2 = receiver.robots[2]
-    # robot2.wheel_velocity_front_right = -16.03751
-    # robot2.wheel_velocity_front_left = 16.03751
-    # robot2.wheel_velocity_back_right = -13.09457
-    # robot2.wheel_velocity_back_left = -13.09457
-
     # Mensagem a ser enviada - Padrão 1
     # Velocidades das rodas  (1,2,3,4) dos robos (1,2,3) (Roda 1 robo1, Roda 2 robo 1, Roda 3 Robo 1 ... )
     # Padrão software: (1,2,3,4)
     # Padrão Eletrônica: (4,3,2,1)
     
-    def kicker_bit(r): # Se o kicker estiver ativo, retorna 1, senão 0
+    # Se o kicker estiver ativo, retorna 1, senão 0
+    def kicker_bit(r): 
         return 1 if getattr(r, 'kick_speed', 0) != 0 else 0
 
-    # Robô 2 é o atacante no software, mas Robô 0 para eletrônica
-    # ...
-    
-    valores_para_enviar = [
-        inverter * int(robot2.wheel_velocity_front_left * CONV_RAD_HZ),
-        inverter * int(robot2.wheel_velocity_back_left * CONV_RAD_HZ),
-        inverter * int(robot2.wheel_velocity_back_right * CONV_RAD_HZ),
-        inverter * int(robot2.wheel_velocity_front_right * CONV_RAD_HZ),
-        kicker_bit(robot2),
+    # Se o kicker oblíquo estiver ativo, retorna 1, senão 0
+    def chip_bit(r): 
+        return 1 if getattr(r, 'kick_angle', 0) != 0 else 0
 
-        inverter * int(robot1.wheel_velocity_front_left * CONV_RAD_HZ),
-        inverter * int(robot1.wheel_velocity_back_left * CONV_RAD_HZ),
-        inverter * int(robot1.wheel_velocity_back_right * CONV_RAD_HZ),
-        inverter * int(robot1.wheel_velocity_front_right * CONV_RAD_HZ),
-        kicker_bit(robot1),
-
-        inverter * int(robot0.wheel_velocity_front_left * CONV_RAD_HZ),
-        inverter * int(robot0.wheel_velocity_back_left * CONV_RAD_HZ),
-        inverter * int(robot0.wheel_velocity_back_right * CONV_RAD_HZ),
-        inverter * int(robot0.wheel_velocity_front_right * CONV_RAD_HZ),
-        kicker_bit(robot0),
-    ]
+    # Constrói a lista de dados a serem enviados para todos os robôs presentes em receiver.robots
+    # (por padrão, processa do robô com maior ID para o menor, ex: 2, 1, 0)
+    # TODO: Eletrônica precisa padronizar o envio do bit de kicker oblíquo
+    valores_para_enviar = []
+    for robot in sorted(receiver.robots, key=lambda r: r.id_robot, reverse=True):
+        valores_para_enviar.extend([
+            inverter * int(robot.wheel_velocity_front_left * CONV_RAD_HZ),
+            inverter * int(robot.wheel_velocity_back_left * CONV_RAD_HZ),
+            inverter * int(robot.wheel_velocity_back_right * CONV_RAD_HZ),
+            inverter * int(robot.wheel_velocity_front_right * CONV_RAD_HZ),
+            kicker_bit(robot),
+        ])
     
     print(f"[DEBUG] Lista enviada: {valores_para_enviar}\n")
 
