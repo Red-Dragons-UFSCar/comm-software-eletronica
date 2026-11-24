@@ -5,7 +5,7 @@ from communicators import Receiver, ComunicacaoSerial
 
 CONV_RAD_HZ = 2*np.pi        # Conversão das velocidades para rad/s
 
-RECEIVER_PORT = 10305       # Mesma porta que o código está mandando os comandos
+RECEIVER_PORT = 10315       # Mesma porta que o código está mandando os comandos
 CONTROL_FPS = 60        # Taxa de envio para o STM (Pode alterar aqui se necessário)
 
 SERIAL_FLAG = False      # Habilita a comunicação por SERIAL (False para testar o SOCKET)
