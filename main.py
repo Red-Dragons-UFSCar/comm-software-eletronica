@@ -1,3 +1,4 @@
+import glob
 import time
 import struct
 import numpy as np
@@ -5,15 +6,32 @@ from communicators import Receiver, ComunicacaoSerial
 
 CONV_RAD_HZ = 2*np.pi        # Conversão das velocidades para rad/s
 
-RECEIVER_PORT = 10322       # Mesma porta que o código está mandando os comandos
+RECEIVER_PORT = 10315      # Mesma porta que o código está mandando os comandos
 CONTROL_FPS = 60        # Taxa de envio para o STM (Pode alterar aqui se necessário)
 
 SERIAL_FLAG = True      # Habilita a comunicação por SERIAL (False para testar o SOCKET)
-SERIAL_PORT = '/dev/ttyACM1'        # Conferir a USB utilizada
+_stm_ports = glob.glob('/dev/serial/by-id/*STM32_Virtual_ComPort*')
+SERIAL_PORT = _stm_ports[0] if _stm_ports else '/dev/ttyACM1'        # Conferir a USB utilizada
 SERIAL_BAUD_RATE = 115200
 
 # O código principal inverte os motores, coloque True para desinverter
-MAIN_CODE = True
+MAIN_CODE = False
+
+# O transmissor só tem 3 posições (0, 1 e 2). Aqui você diz qual id do software
+# vai em cada posição: {id_no_software: posição}. Ex.: {0: 0, 3: 1, 5: 2}.
+# IDs que não estiverem aqui são ignorados (aparece um aviso no terminal).
+MAPA_IDS = {0: 0, 1: 1, 2: 2}
+
+# Mapeamento das rodas para os acionamentos: posição i -> conector SELM(i+1) do robô.
+# ORDEM: qual roda do software vai em cada posição ('fl', 'bl', 'br', 'fr')
+# SINAL: +1 ou -1 por posição (multiplicado também por `inverter`)
+# Montagem atual (cabos dos dois acionamentos da frente trocados entre si):
+#   SELM1 = traseira esquerda, SELM2 = dianteira direita,
+#   SELM3 = dianteira esquerda, SELM4 = traseira direita.
+# O positivo dos motores é horário e o da cinemática (RedSSL, phi 55/125/235/305) é anti-horário,
+# por isso todos os sinais são -1.
+ORDEM = ['bl', 'fr', 'fl', 'br']
+SINAL = [-1, -1, -1, -1]
 
 # ---------------------------------------------------------------------------------------------
 #   INICIO DO CÓDIGO PRINCIPAL
@@ -26,7 +44,7 @@ else:
     inverter = 1
 
 # Inicialização do recebimento das mensagens via socket
-receiver = Receiver(port=RECEIVER_PORT, logger=False)
+receiver = Receiver(port=RECEIVER_PORT, logger=False, mapa_ids=MAPA_IDS)
 receiver.start_thread()
 
 # Inicialização do objeto serial
@@ -82,25 +100,19 @@ while True:
     # Robô 2 é o atacante no software, mas Robô 0 para eletrônica
     # ...
     
-    valores_para_enviar = [
-        inverter * int(robot2.wheel_velocity_front_left * CONV_RAD_HZ),
-        inverter * int(robot2.wheel_velocity_back_left * CONV_RAD_HZ),
-        inverter * int(robot2.wheel_velocity_back_right * CONV_RAD_HZ),
-        inverter * int(robot2.wheel_velocity_front_right * CONV_RAD_HZ),
-        kicker_bit(robot2),
+    # Ordem e sinal de cada posição vêm de ORDEM/SINAL (topo do arquivo).
+    # Posição i da lista -> conector SELM(i+1) do robô.
+    def rodas(r):
+        vel = {
+            'fl': r.wheel_velocity_front_left,
+            'bl': r.wheel_velocity_back_left,
+            'br': r.wheel_velocity_back_right,
+            'fr': r.wheel_velocity_front_right,
+        }
+        return [inverter * SINAL[i] * int(vel[ORDEM[i]] * CONV_RAD_HZ)
+                for i in range(4)] + [kicker_bit(r)]
 
-        inverter * int(robot1.wheel_velocity_front_left * CONV_RAD_HZ),
-        inverter * int(robot1.wheel_velocity_back_left * CONV_RAD_HZ),
-        inverter * int(robot1.wheel_velocity_back_right * CONV_RAD_HZ),
-        inverter * int(robot1.wheel_velocity_front_right * CONV_RAD_HZ),
-        kicker_bit(robot1),
-
-        inverter * int(robot0.wheel_velocity_front_left * CONV_RAD_HZ),
-        inverter * int(robot0.wheel_velocity_back_left * CONV_RAD_HZ),
-        inverter * int(robot0.wheel_velocity_back_right * CONV_RAD_HZ),
-        inverter * int(robot0.wheel_velocity_front_right * CONV_RAD_HZ),
-        kicker_bit(robot0),
-    ]
+    valores_para_enviar = rodas(robot2) + rodas(robot1) + rodas(robot0)
     
     print(f"[DEBUG] Lista enviada: {valores_para_enviar}\n")
 

@@ -39,7 +39,7 @@ class RobotVelocity:
         self.treshold_message = 2*RECEIVER_FPS
 
 class Receiver():
-    def __init__(self, ip: str = 'localhost', port: int = 10330, logger: bool = False):
+    def __init__(self, ip: str = 'localhost', port: int = 10330, logger: bool = False, mapa_ids: dict = None):
         """
         Descrição:
             Classe para recepção de mensagens serializadas usando Google Protobuf.
@@ -48,7 +48,11 @@ class Receiver():
             ip:       Endereço IP para escuta. Padrão é 'localhost'.
             port:     Porta de escuta. Padrão é 10302.
             logger:   Flag que ativa o log de recebimento de mensagens no terminal.
+            mapa_ids: Dicionário {id do software: posição 0, 1 ou 2}. Padrão {0: 0, 1: 1, 2: 2}.
+                      IDs fora do mapa são ignorados (com aviso), em vez de derrubar o programa.
         """
+        self.mapa_ids = mapa_ids if mapa_ids is not None else {0: 0, 1: 1, 2: 2}
+        self._ids_avisados = set()
         # Parâmetros de rede
         self.ip = ip
         self.port = port
@@ -114,9 +118,16 @@ class Receiver():
             else:
                 print("[Receiver] Erro de socket:", e)
                 return None
-            
+
     def decode_message(self, message):
-        id_robot = message.robot_commands[0].id
+        id_software = message.robot_commands[0].id
+        id_robot = self.mapa_ids.get(id_software)
+        if id_robot is None or not 0 <= id_robot < len(self.robots):
+            if id_software not in self._ids_avisados:
+                print(f"[Receiver] Aviso: robô com id {id_software} não está em MAPA_IDS "
+                      f"{self.mapa_ids}; mensagens dele serão ignoradas.")
+                self._ids_avisados.add(id_software)
+            return
         wheel_velocity_front_right = message.robot_commands[0].move_command.wheel_velocity.front_right
         wheel_velocity_back_right = message.robot_commands[0].move_command.wheel_velocity.back_right
         wheel_velocity_back_left = message.robot_commands[0].move_command.wheel_velocity.back_left

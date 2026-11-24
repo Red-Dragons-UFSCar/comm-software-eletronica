@@ -135,7 +135,7 @@ imput_texts["linear_1"] = "1"
 imput_texts["angular_1"] = "5.0"
 imput_texts["linear_2"] = "1"
 imput_texts["angular_2"] = "5.0"
-imput_texts["comm_port"] = "10330"
+imput_texts["comm_port"] = "10315"
 imput_texts["comm_ip"] = "localhost"
 
 def verify_is_number(value):
