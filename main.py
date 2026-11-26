@@ -17,10 +17,18 @@ SERIAL_BAUD_RATE = 115200
 # O código principal inverte os motores, coloque True para desinverter
 MAIN_CODE = False
 
-# O transmissor só tem 3 posições (0, 1 e 2). Aqui você diz qual id do software
-# vai em cada posição: {id_no_software: posição}. Ex.: {0: 0, 3: 1, 5: 2}.
+# Mapa de identificação dos robôs: {vision_id: ID da placa}
+#   - vision_id:   ID da visão (padrão de cores em cima do robô). É o `id` que o RedSSL
+#                  manda no protobuf, tanto no jogo quanto na teleoperação.
+#   - ID da placa: valor de ROBOT_ID_FIXO gravado no firmware do robô
+#                  (Robo2025/CM4/Core/Src/main.c). Só pode ser 0, 1 ou 2.
+# O ID da placa define o endereço de rádio (NRF) que o robô escuta:
+#   placa 0 -> E1..E5 | placa 1 -> A1..A5 | placa 2 -> B1..B5
+# Os dois IDs são do robô físico, então esse mapa só muda se trocar a tampa
+# (padrão da visão) ou regravar a placa. Não depende do slot na interface do RedSSL.
 # IDs que não estiverem aqui são ignorados (aparece um aviso no terminal).
-MAPA_IDS = {0: 0, 1: 1, 2: 2}
+# Ex.: {10: 2, 11: 1, 2: 0} -> robô da visão 10 tem a placa gravada com ROBOT_ID_FIXO 2.
+MAPA_IDS = {10: 0, 11: 1, 2: 2}
 
 # Mapeamento das rodas para os acionamentos: posição i -> conector SELM(i+1) do robô.
 # ORDEM: qual roda do software vai em cada posição ('fl', 'bl', 'br', 'fr')
@@ -58,7 +66,7 @@ while True:
     receiver.receive_socket()
     # Acesso das variáveis obtidas pela rede em cada um dos robôs [0, 1 e 2]
     for robot in receiver.robots:
-        print("Robô ", robot.id_robot)
+        print("Placa ", robot.id_robot)   # ID da placa (ROBOT_ID_FIXO), não o vision_id
         print("Frente direita: ", robot.wheel_velocity_front_right)
         print("Frente esquerda: ", robot.wheel_velocity_front_left)
         print("Trás direita: ", robot.wheel_velocity_back_right)
@@ -68,38 +76,24 @@ while True:
     # Caso a interface com o teclado não esteja pronta ainda, descomente as linhas abaixo
     # Elas possuem casos padrão para testes básicos de validação.
 
-    # Robô 0 a 0.5m/s pra frente - descomentar as próximas 5 linhas
+    # robotN = robô com a placa gravada com ROBOT_ID_FIXO N
     robot0 = receiver.robots[0]
-    #robot0.wheel_velocity_front_right = 0
-    #robot0.wheel_velocity_front_left = 0
-    # robot0.wheel_velocity_back_right = 0
-    #robot0.wheel_velocity_back_left = 0
-
-    # Robô 1 a 0.5m/s pra cima - descomentar as próximas 5 linhas
     robot1 = receiver.robots[1]
-    # robot1.wheel_velocity_front_right = 9.25926
-    # robot1.wheel_velocity_front_left = 9.259256
-    # robot1.wheel_velocity_back_right = -13.09457
-    # robot1.wheel_velocity_back_left = -13.09457
-
-    # Robô 2 a 1 rad/s (apenas girando) - descomentar as próximas 5 linhas
     robot2 = receiver.robots[2]
-    # robot2.wheel_velocity_front_right = -16.03751
-    # robot2.wheel_velocity_front_left = 16.03751
-    # robot2.wheel_velocity_back_right = -13.09457
-    # robot2.wheel_velocity_back_left = -13.09457
 
     # Mensagem a ser enviada - Padrão 1
     # Velocidades das rodas  (1,2,3,4) dos robos (1,2,3) (Roda 1 robo1, Roda 2 robo 1, Roda 3 Robo 1 ... )
     # Padrão software: (1,2,3,4)
     # Padrão Eletrônica: (4,3,2,1)
     
-    def kicker_bit(r): # Se o kicker estiver ativo, retorna 1, senão 0
-        return 1 if getattr(r, 'kick_speed', 0) != 0 else 0
+    def kicker_bit(r):
+        # 1 enquanto houver pedido de chute guardado (Receiver segura por
+        # KICK_HOLD_FRAMES envios); consome um a cada envio
+        if getattr(r, 'kick_frames', 0) > 0:
+            r.kick_frames -= 1
+            return 1
+        return 0
 
-    # Robô 2 é o atacante no software, mas Robô 0 para eletrônica
-    # ...
-    
     # Ordem e sinal de cada posição vêm de ORDEM/SINAL (topo do arquivo).
     # Posição i da lista -> conector SELM(i+1) do robô.
     def rodas(r):
@@ -112,8 +106,13 @@ while True:
         return [inverter * SINAL[i] * int(vel[ORDEM[i]] * CONV_RAD_HZ)
                 for i in range(4)] + [kicker_bit(r)]
 
-    valores_para_enviar = rodas(robot2) + rodas(robot1) + rodas(robot0)
-    
+    # Pacote serial: 3 blocos de 5 inteiros [4 rodas + chute], na ordem da placa.
+    # O transmissor (Transmissor2025, CM4 parse_usb_data_to_robot_commands + CM7 loop)
+    # manda o bloco 0 para o endereço da placa 0, o bloco 1 para a placa 1 e o
+    # bloco 2 para a placa 2. Por isso robots[i] aqui é sempre a placa i.
+    # NÃO inverter essa ordem: senão o MAPA_IDS deixa de ser {vision_id: ID da placa}.
+    valores_para_enviar = rodas(robot0) + rodas(robot1) + rodas(robot2)
+
     print(f"[DEBUG] Lista enviada: {valores_para_enviar}\n")
 
     formato = f'<{len(valores_para_enviar)}i'  # 15 inteiros

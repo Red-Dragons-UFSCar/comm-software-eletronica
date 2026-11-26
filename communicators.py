@@ -6,6 +6,13 @@ from proto.ssl_simulation_robot_control_pb2 import RobotControl
 
 RECEIVER_FPS = 3000     # Taxa de aquisição da rede dos pacotes do software
 
+# Quantos envios seguidos ao transmissor levam o bit de chute depois de um pedido.
+# O pedido chega em UM pacote; se outro pacote do mesmo robô (sem chute) chegasse
+# antes do próximo envio, o chute era sobrescrito e perdido. Segurar alguns quadros
+# também cobre perda de pacote no rádio. Não chuta duas vezes: o firmware do robô
+# ignora novos pedidos por 2 s depois de um chute (KICK_DELAY).
+KICK_HOLD_FRAMES = 5    # ~80 ms a 60 Hz
+
 # ---------------------------------------------------------------------------------------------
 #    DEFINIÇÃO DAS CLASSES DE COMUNICAÇÃO SOCKET E SERIAL
 # ---------------------------------------------------------------------------------------------
@@ -34,6 +41,7 @@ class RobotVelocity:
         self.wheel_velocity_back_left = 0
         self.wheel_velocity_front_left = 0
         self.kick_speed = 0
+        self.kick_frames = 0    # envios restantes com o bit de chute (ver KICK_HOLD_FRAMES)
 
         self.cont_not_message = 0
         self.treshold_message = 2*RECEIVER_FPS
@@ -48,7 +56,10 @@ class Receiver():
             ip:       Endereço IP para escuta. Padrão é 'localhost'.
             port:     Porta de escuta. Padrão é 10302.
             logger:   Flag que ativa o log de recebimento de mensagens no terminal.
-            mapa_ids: Dicionário {id do software: posição 0, 1 ou 2}. Padrão {0: 0, 1: 1, 2: 2}.
+            mapa_ids: Dicionário {vision_id: ID da placa (ROBOT_ID_FIXO, 0, 1 ou 2)}.
+                      Padrão {0: 0, 1: 1, 2: 2}. O comando com `id` = vision_id vai para
+                      robots[ID da placa], que é enviado no bloco de mesmo índice do pacote
+                      serial e chega na placa gravada com esse ID.
                       IDs fora do mapa são ignorados (com aviso), em vez de derrubar o programa.
         """
         self.mapa_ids = mapa_ids if mapa_ids is not None else {0: 0, 1: 1, 2: 2}
@@ -61,7 +72,7 @@ class Receiver():
         # Controle de log
         self.logger = logger
 
-        # Robôs a serem controlados
+        # Robôs a serem controlados, indexados pelo ID da placa (robots[i] = placa i)
         self.robot0 = RobotVelocity(0)
         self.robot1 = RobotVelocity(1)
         self.robot2 = RobotVelocity(2)
@@ -93,16 +104,26 @@ class Receiver():
         """
         try:
             data, _ = self.socket.recvfrom(self.buffer_size)
-            if self.logger:
-                print("[Receiver] Mensagem recebida")
+            self._process_packet(data)
 
-            # Desserializar a mensagem usando a classe Protobuf RobotControl
-            message = RobotControl()
-            message.ParseFromString(data)
-            self.decode_message(message)
+            # O código principal manda um pacote por robô a cada ciclo (3 robôs = 3 pacotes),
+            # mas este loop roda a 60 Hz. Lendo só um pacote por volta a fila crescia sem parar:
+            # os comandos chegavam cada vez mais atrasados e, com o buffer cheio, os novos eram
+            # descartados. Aqui esvaziamos a fila e ficamos com o comando mais recente de cada robô.
+            self.socket.setblocking(False)
+            try:
+                while True:
+                    data, _ = self.socket.recvfrom(self.buffer_size)
+                    self._process_packet(data)
+            except (BlockingIOError, InterruptedError):
+                pass
+            finally:
+                self.socket.settimeout(0.1)
 
         except socket.error as e:
-            if e.errno == socket.errno.EAGAIN:
+            # O socket tem timeout de 0.1 s: "nenhuma mensagem" chega como socket.timeout
+            # (sem errno), não como EAGAIN. Sem isso o failsafe nunca zerava as rodas.
+            if isinstance(e, socket.timeout) or e.errno == socket.errno.EAGAIN:
                 # Nenhuma mensagem disponível no momento
                 # Se ficar muito tempo sem receber mensagens, a velocidade do robô vai a zero
                 for robot in self.robots:
@@ -118,6 +139,17 @@ class Receiver():
             else:
                 print("[Receiver] Erro de socket:", e)
                 return None
+
+    def _process_packet(self, data):
+        """
+        Descrição:
+            Desserializa um pacote (Protobuf RobotControl) e atualiza o robô correspondente.
+        """
+        if self.logger:
+            print("[Receiver] Mensagem recebida")
+        message = RobotControl()
+        message.ParseFromString(data)
+        self.decode_message(message)
 
     def decode_message(self, message):
         id_software = message.robot_commands[0].id
@@ -139,6 +171,10 @@ class Receiver():
         self.robots[id_robot].wheel_velocity_front_left = wheel_velocity_front_left
         self.robots[id_robot].cont_not_message = 0
         self.robots[id_robot].kick_speed = kick_speed
+        # Pedido de chute fica guardado por alguns envios, mesmo que o próximo
+        # pacote venha sem chute (ver KICK_HOLD_FRAMES)
+        if kick_speed > 0:
+            self.robots[id_robot].kick_frames = KICK_HOLD_FRAMES
 
             
     def start_thread(self):
